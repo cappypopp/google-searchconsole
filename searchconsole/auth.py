@@ -20,7 +20,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from .account import Account
 
 
-def authenticate(client_config, credentials=None, serialize=None, flow="web"):
+def authenticate(client_config, credentials=None, serialize=None):
     """
     The `authenticate` function will authenticate a user with the Google Search
     Console API.
@@ -67,15 +67,6 @@ def authenticate(client_config, credentials=None, serialize=None, flow="web"):
             raise ValueError("Client secrets must be a mapping or path to file")
 
         auth_flow.run_local_server(port=0)
-        '''
-        if flow == "web":
-            auth_flow.run_local_server()
-        elif flow == "console":
-            auth_flow.run_console()
-        else:
-            raise ValueError("Authentication flow '{}' not supported".format(flow))
-        '''
-
         credentials = auth_flow.credentials
 
     else:
