@@ -66,7 +66,9 @@ def authenticate(client_config, credentials=None, serialize=None):
 
             raise ValueError("Client secrets must be a mapping or path to file")
 
-        auth_flow.run_local_server(port=8081)
+        # you have to run this code locally first, get the credentials file, then UPLOAD THAT to
+        # Colab - you can't do an oauth flow in colab easily; by default this checks port 8080
+        auth_flow.run_local_server()
         credentials = auth_flow.credentials
 
     else:
