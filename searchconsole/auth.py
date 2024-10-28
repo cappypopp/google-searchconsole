@@ -3,8 +3,8 @@
 """
 Convenience function for authenticating with Google Search
 Console. You can use saved client configuration files or a
-mapping object and generate your credentials using OAuth2 or
-a serialized credentials file or mapping.
+mapping object and generate your credentials using OAuth2, a
+serialized credentials file, or a service account.
 
 For more details on formatting your configuration files, see:
 http://google-auth-oauthlib.readthedocs.io/en/latest/reference/google_auth_oauthlib.flow.html
@@ -12,15 +12,15 @@ http://google-auth-oauthlib.readthedocs.io/en/latest/reference/google_auth_oauth
 
 import collections.abc
 import json
-
 from apiclient import discovery
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from .account import Account
 
 
-def authenticate(client_config, credentials=None, serialize=None):
+def authenticate(client_config, credentials=None, serialize=None, flow="web", user=None):
     """
     The `authenticate` function will authenticate a user with the Google Search
     Console API.
@@ -29,10 +29,11 @@ def authenticate(client_config, credentials=None, serialize=None):
         client_config (collections.abc.Mapping or str): Client configuration
             parameters in the Google format specified in the module docstring.
         credentials (collections.abc.Mapping or str): OAuth2 credentials
-            parameters in the Google format specified in the module docstring
+            parameters in the Google format specified in the module docstring.
         serialize (str): Path to where credentials should be serialized.
         flow (str): Authentication environment. Specify "console" for environments (like Google Colab)
-            where the standard "web" flow isn't possible.
+            where the standard "web" flow isn't possible, or "service_account" for delegated authority.
+        user (str): Email address of the user to impersonate when using a service account.
 
     Returns:
         `searchconsole.account.Account`: Account object containing web
@@ -42,39 +43,53 @@ def authenticate(client_config, credentials=None, serialize=None):
         >>> import searchconsole
         >>> account = searchconsole.authenticate(
         ...     client_config='auth/client_secrets.json',
-        ...     credentials='auth/credentials.dat'
+        ...     credentials='auth/credentials.dat',
+        ...     flow='service_account',
+        ...     user='<EMAIL>'
         ... )
     """
+    SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly']
 
+    # If no credentials are provided, authenticate using client_config
     if not credentials:
 
+        # Using client secrets or mapping for OAuth flow
         if isinstance(client_config, collections.abc.Mapping):
-
             auth_flow = InstalledAppFlow.from_client_config(
                 client_config=client_config,
-                scopes=['https://www.googleapis.com/auth/webmasters.readonly']
+                scopes=SCOPES
             )
+
+        elif isinstance(client_config, str) and flow == "service_account":
+            # Service account flow with impersonation
+            credentials = service_account.Credentials.from_service_account_file(
+                client_config, scopes=SCOPES
+            )
+            if user:
+                credentials = credentials.with_subject(user)
 
         elif isinstance(client_config, str):
-
+            # OAuth2 client secrets file
             auth_flow = InstalledAppFlow.from_client_secrets_file(
                 client_secrets_file=client_config,
-                scopes=['https://www.googleapis.com/auth/webmasters.readonly']
+                scopes=SCOPES
             )
-
         else:
-
             raise ValueError("Client secrets must be a mapping or path to file")
 
-        # you have to run this code locally first, get the credentials file, then UPLOAD THAT to
-        # Colab - you can't do an oauth flow in colab easily; by default this checks port 8080
-        auth_flow.run_local_server()
-        credentials = auth_flow.credentials
+        # Handle OAuth2 flow
+        if flow in ["web", "console"]:
+            if flow == "web":
+                auth_flow.run_local_server()
+            elif flow == "console":
+                auth_flow.run_console()
+            credentials = auth_flow.credentials
+        elif flow != "service_account":
+            raise ValueError("Authentication flow '{}' not supported".format(flow))
 
+    # If credentials are provided, load them
     else:
-
         if isinstance(credentials, str):
-
             with open(credentials, 'r') as f:
                 credentials = json.load(f)
 
@@ -88,6 +103,7 @@ def authenticate(client_config, credentials=None, serialize=None):
             scopes=credentials['scopes']
         )
 
+    # Build the service object
     service = discovery.build(
         serviceName='searchconsole',
         version='v1',
@@ -95,25 +111,20 @@ def authenticate(client_config, credentials=None, serialize=None):
         cache_discovery=False,
     )
 
-    if serialize:
-
-        if isinstance(serialize, str):
-
-            serialized = {
-                'token': credentials.token,
-                'refresh_token': credentials.refresh_token,
-                'id_token': credentials.id_token,
-                'token_uri': credentials.token_uri,
-                'client_id': credentials.client_id,
-                'client_secret': credentials.client_secret,
-                'scopes': credentials.scopes
-            }
-
-            with open(serialize, 'w') as f:
-                json.dump(serialized, f)
-
-        else:
-
-            raise TypeError('`serialize` must be a path.')
+    # Serialize credentials if requested
+    if serialize and isinstance(serialize, str):
+        serialized = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'id_token': credentials.id_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
+        }
+        with open(serialize, 'w') as f:
+            json.dump(serialized, f)
+    elif serialize:
+        raise TypeError('`serialize` must be a path.')
 
     return Account(service, credentials)
