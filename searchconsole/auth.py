@@ -12,9 +12,12 @@ http://google-auth-oauthlib.readthedocs.io/en/latest/reference/google_auth_oauth
 
 import collections.abc
 import json
+import os
+
 from apiclient import discovery
-from google.oauth2.credentials import Credentials
 from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials as OAuthCredentials
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from .account import Account
@@ -92,16 +95,32 @@ def authenticate(client_config, credentials=None, serialize=None, flow="web", us
         if isinstance(credentials, str):
             with open(credentials, 'r') as f:
                 credentials = json.load(f)
+        if 'refresh_token' in credentials:
+            # we have oauth credentials
+            credentials = OAuthCredentials(
+                token=credentials['token'],
+                refresh_token=credentials['refresh_token'],
+                id_token=credentials['id_token'],
+                token_uri=credentials['token_uri'],
+                client_id=credentials['client_id'],
+                client_secret=credentials['client_secret'],
+                scopes=credentials['scopes']
+            )
+        elif 'service_account_email' in credentials:
+            # we have a service account, use its credentials
+            credentials = ServiceAccountCredentials(
+                    signer=credentials['signer'],
+                    service_account_email=credentials['service_account_email'],
+                    token_uri=credentials['token_uri'],
+                    scopes=credentials['scopes'],
+                    default_scopes=credentials['default_scopes'],
+                    subject=credentials['subject'],
+                    project_id=credentials['project_id']
+            )
+        else:
+            raise ValueError('Loaded credentials are not OAuth or Service Account type.')
 
-        credentials = Credentials(
-            token=credentials['token'],
-            refresh_token=credentials['refresh_token'],
-            id_token=credentials['id_token'],
-            token_uri=credentials['token_uri'],
-            client_id=credentials['client_id'],
-            client_secret=credentials['client_secret'],
-            scopes=credentials['scopes']
-        )
+
 
     # Build the service object
     service = discovery.build(
@@ -113,17 +132,29 @@ def authenticate(client_config, credentials=None, serialize=None, flow="web", us
 
     # Serialize credentials if requested
     if serialize and isinstance(serialize, str):
-        serialized = {
-            'token': credentials.token,
-            'refresh_token': credentials.refresh_token,
-            'id_token': credentials.id_token,
-            'token_uri': credentials.token_uri,
-            'client_id': credentials.client_id,
-            'client_secret': credentials.client_secret,
-            'scopes': credentials.scopes
-        }
-        with open(serialize, 'w') as f:
-            json.dump(serialized, f)
+        if os.path.exists(serialize):
+            if 'refresh_token' in credentials:
+                serialized = {
+                    'token': credentials.token,
+                    'refresh_token': credentials.refresh_token,
+                    'id_token': credentials.id_token,
+                    'token_uri': credentials.token_uri,
+                    'client_id': credentials.client_id,
+                    'client_secret': credentials.client_secret,
+                    'scopes': credentials.scopes
+                }
+            else: # service account
+                serialized = {
+                    'signer': credentials['signer'],
+                    'service_account_email': credentials['service_account_email'],
+                    'token_uri': credentials['token_uri'],
+                    'scopes': credentials['scopes'],
+                    'default_scopes': credentials['default_scopes'],
+                    'subject': credentials['subject'],
+                    'project_id': credentials['project_id']
+                }
+            with open(serialize, 'w') as f:
+                json.dump(serialized, f)
     elif serialize:
         raise TypeError('`serialize` must be a path.')
 
